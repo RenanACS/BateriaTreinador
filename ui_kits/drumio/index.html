@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>drumio — practice your kit</title>
+  <link rel="stylesheet" href="../../colors_and_type.css" />
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      background:
+        radial-gradient(ellipse 100% 80% at 50% -10%, #141417, transparent 60%),
+        var(--ink-1000);
+      color: var(--fg);
+      font-family: var(--font-body);
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+    /* film grain overlay */
+    body::after {
+      content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 200;
+      opacity: var(--grain-opacity);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+
+    .drumio-root { position: relative; min-height: 100vh; }
+
+    .drumio-play { max-width: 1240px; margin: 0 auto; padding: 26px 28px 48px; }
+    .drumio-topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding-bottom: 22px; margin-bottom: 22px; border-bottom: 1px solid var(--hairline);
+    }
+    .drumio-ghost-btn {
+      display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+      background: var(--ink-800); color: var(--fg-2); border: 1px solid var(--border-soft);
+      border-radius: var(--r-pill); padding: 8px 16px; box-shadow: var(--bevel);
+      font-family: var(--font-mono); font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
+      transition: color var(--dur), background var(--dur);
+    }
+    .drumio-ghost-btn:hover { color: var(--fg); background: var(--ink-700); }
+
+    .drumio-stage-grid {
+      display: grid; grid-template-columns: 1.45fr 1fr; gap: 22px; align-items: start;
+    }
+    @media (max-width: 940px) { .drumio-stage-grid { grid-template-columns: 1fr; } }
+
+    .drumio-panel {
+      background: var(--surface); border: 1px solid var(--border-soft);
+      border-radius: var(--r-xl); padding: 20px;
+      box-shadow: var(--bevel), var(--shadow-2);
+    }
+    .drumio-kit-panel { padding: 18px; }
+    .drumio-desk { display: flex; flex-direction: column; gap: 18px; }
+    .drumio-panel-head {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 16px; gap: 12px; flex-wrap: wrap;
+    }
+
+    /* range thumb */
+    .drumio-range { -webkit-appearance: none; appearance: none; background: transparent; height: 34px; cursor: pointer; }
+    .drumio-range::-webkit-slider-runnable-track { background: transparent; height: 34px; }
+    .drumio-range::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none; width: 22px; height: 22px; margin-top: 6px;
+      border-radius: 50%; background: var(--white);
+      border: 3px solid var(--ink-700); box-shadow: var(--glow-sm), 0 2px 6px rgba(0,0,0,0.6);
+    }
+    .drumio-range::-moz-range-thumb {
+      width: 22px; height: 22px; border-radius: 50%; background: var(--white);
+      border: 3px solid var(--ink-700); box-shadow: var(--glow-sm);
+    }
+
+    /* intro */
+    .drumio-intro { transition: opacity 0.55s var(--ease-out); }
+    .drumio-intro.leaving { opacity: 0; pointer-events: none; }
+    .drumio-intro-lockup { animation: drumio-strike 0.6s var(--ease-snap) both; }
+    @keyframes drumio-strike {
+      0% { transform: scale(0.6); opacity: 0; filter: blur(8px); }
+      60% { transform: scale(1.06); opacity: 1; filter: blur(0); }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .drumio-intro-tag { animation: drumio-fade 0.8s 0.5s var(--ease-out) both; }
+    .drumio-intro-skip { animation: drumio-fade 0.8s 1.6s var(--ease-out) both; }
+    @keyframes drumio-fade { from { opacity: 0; } to { opacity: 1; } }
+    .drumio-ripple {
+      position: absolute; left: 0; top: 0; width: 80px; height: 80px;
+      margin: -40px 0 0 -40px; border-radius: 50%;
+      border: 1.5px solid rgba(252,252,253,0.5);
+      animation: drumio-ripple 1.1s var(--ease-out) forwards;
+    }
+    @keyframes drumio-ripple {
+      0% { transform: scale(0.4); opacity: 0.7; }
+      100% { transform: scale(6); opacity: 0; }
+    }
+
+    button { font-family: inherit; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script src="audio.js"></script>
+  <script type="text/babel" src="icons.jsx"></script>
+  <script type="text/babel" src="brand.jsx"></script>
+  <script type="text/babel" src="transport.jsx"></script>
+  <script type="text/babel" src="pads.jsx"></script>
+  <script type="text/babel" src="controls.jsx"></script>
+  <script type="text/babel" src="intro.jsx"></script>
+  <script type="text/babel" src="app.jsx"></script>
+</body>
+</html>

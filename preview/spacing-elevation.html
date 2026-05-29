@@ -1,0 +1,23 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body{margin:0;background:var(--ink-900);color:var(--fg);font-family:var(--font-body);padding:22px 24px}
+  .lbl{font-family:var(--font-mono);font-weight:700;font-size:9px;letter-spacing:0.2em;text-transform:uppercase;color:var(--fg-3);margin:0 0 16px}
+  .row{display:flex;gap:20px}
+  .col{flex:1;display:flex;flex-direction:column;align-items:center;gap:9px}
+  .tile{width:100%;height:62px;border-radius:var(--r-lg);background:var(--ink-700)}
+  .bevel{box-shadow:var(--bevel);border:1px solid var(--border-soft)}
+  .well{background:var(--ink-1000);box-shadow:var(--inset-well)}
+  .e2{box-shadow:var(--bevel),var(--shadow-2);border:1px solid var(--border-soft)}
+  .e3{box-shadow:var(--bevel),var(--shadow-3);border:1px solid var(--border-soft)}
+  .n{font-family:var(--font-mono);font-size:10px;color:var(--fg-3)}
+</style></head>
+<body>
+  <p class="lbl">Elevation — dark drop + 1px top bevel; inputs are recessed wells</p>
+  <div class="row">
+    <div class="col"><div class="tile bevel"></div><span class="n">bevel</span></div>
+    <div class="col"><div class="tile well"></div><span class="n">inset well</span></div>
+    <div class="col"><div class="tile e2"></div><span class="n">shadow-2</span></div>
+    <div class="col"><div class="tile e3"></div><span class="n">shadow-3</span></div>
+  </div>
+</body></html>

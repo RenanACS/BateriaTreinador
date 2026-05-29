@@ -1,0 +1,21 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body{margin:0;background:var(--ink-1000);color:var(--fg);font-family:var(--font-body);height:170px;display:flex;align-items:center;gap:30px;padding:0 36px}
+  .lbl{font-family:var(--font-mono);font-weight:700;font-size:10px;letter-spacing:0.22em;text-transform:uppercase;color:var(--fg-3)}
+  .stack{display:flex;flex-direction:column;gap:9px}
+  .dot{width:64px;height:64px;border-radius:50%;background:var(--signal)}
+  .g1{box-shadow:0 0 10px rgba(252,252,253,.35)}
+  .g2{box-shadow:0 0 22px rgba(252,252,253,.45)}
+  .g3{box-shadow:0 0 40px rgba(252,252,253,.55)}
+  .cap{font-family:var(--font-mono);font-size:10px;color:var(--fg-3);text-align:center;margin-top:8px}
+</style></head>
+<body>
+  <div class="stack" style="max-width:230px">
+    <span class="lbl">The signal</span>
+    <p style="margin:0;font-size:13px;line-height:1.5;color:var(--fg-2)">White is reserved for energy — a hit, the playing step, the active control. Used sparingly so it always reads.</p>
+  </div>
+  <div><div class="dot g1"></div><div class="cap">glow-sm</div></div>
+  <div><div class="dot g2"></div><div class="cap">glow-md</div></div>
+  <div><div class="dot g3"></div><div class="cap">glow-lg</div></div>
+</body></html>

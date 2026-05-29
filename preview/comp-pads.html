@@ -1,0 +1,21 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body{margin:0;background:var(--ink-900);color:var(--fg);font-family:var(--font-body);padding:24px;display:flex;gap:34px;align-items:center;justify-content:center}
+  .pad{width:118px;height:118px;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;position:relative}
+  .drum{background:radial-gradient(circle at 50% 38%,var(--ink-750),var(--ink-850) 62%,var(--ink-1000));border:2px solid var(--ink-600);box-shadow:inset 0 1px 0 rgba(255,255,255,.10),0 0 0 1px rgba(255,255,255,.10),var(--shadow-2)}
+  .cymbal{background:radial-gradient(circle at 50% 42%,var(--ink-700),var(--ink-850) 60%,var(--ink-900));border:1.5px solid var(--ink-500);box-shadow:var(--bevel),var(--shadow-1)}
+  .hit{box-shadow:0 0 0 2px var(--signal),0 0 22px rgba(252,252,253,.45),var(--shadow-2)!important;transform:scale(1.04)}
+  .ring{position:absolute;inset:12%;border-radius:50%;border:1px solid rgba(255,255,255,.07)}
+  .ring2{position:absolute;inset:30%;border-radius:50%;border:1px solid rgba(255,255,255,.07)}
+  .ab{font-family:var(--font-mono);font-weight:700;font-size:11px;letter-spacing:0.12em;color:var(--fg-3)}
+  .nm{font-family:var(--font-display);font-weight:700;font-size:15px;color:var(--fg)}
+  .dots{display:flex;gap:3px;margin-top:5px}
+  .dots span{width:4px;height:4px;border-radius:50%}
+  .cap{font-family:var(--font-mono);font-size:9px;letter-spacing:0.18em;text-transform:uppercase;color:var(--fg-3);text-align:center;margin-top:10px}
+  .col{display:flex;flex-direction:column;align-items:center}
+</style></head>
+<body>
+  <div class="col"><div class="pad drum hit"><span class="ring"></span><span class="ab">SN</span><span class="nm">Snare</span><div class="dots"><span style="background:#2E2E34"></span><span style="background:#2E2E34"></span><span style="background:#FCFCFD;box-shadow:0 0 6px #fff"></span><span style="background:#2E2E34"></span><span style="background:#2E2E34"></span><span style="background:#2E2E34"></span><span style="background:#B6B6BE"></span><span style="background:#2E2E34"></span></div></div><span class="cap">drum · hit</span></div>
+  <div class="col"><div class="pad cymbal"><span class="ring"></span><span class="ring2"></span><span class="ab">RD</span><span class="nm">Ride</span><div class="dots"><span style="background:#B6B6BE"></span><span style="background:#2E2E34"></span><span style="background:#B6B6BE"></span><span style="background:#2E2E34"></span><span style="background:#B6B6BE"></span><span style="background:#2E2E34"></span><span style="background:#B6B6BE"></span><span style="background:#2E2E34"></span></div></div><span class="cap">cymbal · idle</span></div>
+</body></html>

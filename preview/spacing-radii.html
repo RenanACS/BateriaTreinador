@@ -1,0 +1,22 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body{margin:0;background:var(--ink-900);color:var(--fg);font-family:var(--font-body);padding:20px 24px}
+  .lbl{font-family:var(--font-mono);font-weight:700;font-size:9px;letter-spacing:0.2em;text-transform:uppercase;color:var(--fg-3);margin:0 0 16px}
+  .row{display:flex;gap:18px;align-items:flex-end}
+  .col{display:flex;flex-direction:column;align-items:center;gap:8px}
+  .box{width:62px;height:62px;background:var(--ink-700);border:1px solid var(--border-soft);box-shadow:var(--bevel)}
+  .n{font-family:var(--font-mono);font-size:10px;color:var(--fg-3)}
+  .circle{width:62px;height:62px;border-radius:50%;background:var(--ink-700);border:1px solid var(--border-soft);box-shadow:var(--bevel)}
+</style></head>
+<body>
+  <p class="lbl">Corner radii — machined, not pillowy</p>
+  <div class="row">
+    <div class="col"><div class="box" style="border-radius:4px"></div><span class="n">4 · xs</span></div>
+    <div class="col"><div class="box" style="border-radius:6px"></div><span class="n">6 · sm</span></div>
+    <div class="col"><div class="box" style="border-radius:10px"></div><span class="n">10 · md</span></div>
+    <div class="col"><div class="box" style="border-radius:14px"></div><span class="n">14 · lg</span></div>
+    <div class="col"><div class="box" style="border-radius:20px"></div><span class="n">20 · xl</span></div>
+    <div class="col"><div class="circle"></div><span class="n">pad · circle</span></div>
+  </div>
+</body></html>

@@ -1,0 +1,17 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body{margin:0;background:var(--ink-900);color:var(--fg);font-family:var(--font-body);padding:24px;display:flex;align-items:center;gap:22px}
+  .play{width:60px;height:60px;border-radius:50%;background:var(--signal);color:var(--fg-invert);display:flex;align-items:center;justify-content:center;box-shadow:0 0 14px rgba(252,252,253,.4),var(--shadow-2)}
+  .stop{width:60px;height:60px;border-radius:50%;background:var(--ink-750);color:var(--fg);border:1px solid var(--border-soft);display:flex;align-items:center;justify-content:center;box-shadow:var(--bevel),var(--shadow-1)}
+  .ghost{display:inline-flex;align-items:center;gap:8px;background:var(--ink-800);color:var(--fg-2);border:1px solid var(--border-soft);border-radius:var(--r-pill);padding:9px 17px;box-shadow:var(--bevel);font-family:var(--font-mono);font-size:12px;font-weight:700;letter-spacing:0.04em}
+  .step{width:36px;height:36px;border-radius:var(--r-md);background:var(--ink-750);color:var(--fg);border:1px solid var(--border-soft);box-shadow:var(--bevel);display:flex;align-items:center;justify-content:center}
+  .cap{font-family:var(--font-mono);font-size:9px;letter-spacing:0.18em;text-transform:uppercase;color:var(--fg-3);text-align:center;margin-top:8px}
+  .col{display:flex;flex-direction:column;align-items:center}
+</style></head>
+<body>
+  <div class="col"><div class="play"><svg width="25" height="25" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg></div><span class="cap">play</span></div>
+  <div class="col"><div class="stop"><svg width="25" height="25" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2.5"/></svg></div><span class="cap">stop</span></div>
+  <div class="col"><div class="ghost"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg> Replay intro</div><span class="cap">ghost</span></div>
+  <div class="col"><div style="display:flex;gap:8px"><div class="step"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg></div><div class="step"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/><line x1="12" y1="5" x2="12" y2="19"/></svg></div></div><span class="cap">steppers</span></div>
+</body></html>
