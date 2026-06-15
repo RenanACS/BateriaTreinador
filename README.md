@@ -30,6 +30,16 @@ Baixe `drumio-standalone.html` e abra no navegador. Só isso.
 - Clique direito: define roll (×2 a ×8 sub-toques dentro do passo)
 - Contagem regressiva **3 · 2 · 1** antes de começar, no tempo do BPM
 
+**Modo Virada** — monte a sua própria virada (drum fill) e treine-a:
+- Grade própria de 4, 8 ou 16 passos, uma linha por peça — escolha quais instrumentos e em que ordem
+- Clique esquerdo: ativa/desativa · clique direito: roll (×2 a ×8), igual ao sequenciador
+- **INÍCIO** loopa a virada com as guias na cena POV, para você praticar acompanhando
+- No **Modo Sequenciador**, ligue **Virada no loop** para encaixar a sua virada automaticamente a cada 2, 4 ou 8 compassos — como numa música de verdade
+
+## Build
+
+O `drumio-standalone.html` é gerado a partir dos módulos-fonte legíveis em `extracted/` (cada arquivo = um UUID do manifesto embutido). Depois de editar qualquer arquivo em `extracted/`, rode `python3 build.py` para re-empacotar no HTML. Use `python3 build.py --check` para ver se o HTML está sincronizado com o source.
+
 ## Stack
 
 - HTML + CSS + JavaScript puro

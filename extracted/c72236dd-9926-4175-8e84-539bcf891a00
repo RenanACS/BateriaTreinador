@@ -1,0 +1,715 @@
+// drumio — first-person drum trainer. Main app.
+const { useState, useEffect, useRef, useCallback } = React;
+
+const COLORS = {
+  white: "#f4f4f4",
+  cyan: "#74d4e4",
+  amber: "#e8c079",
+};
+
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "renderStyle": "filled",
+  "hitEffect": "ripple",
+  "accent": "white",
+  "showFloor": true
+}/*EDITMODE-END*/;
+
+function judge(absT) {
+  if (absT < 0.045) return { text: "PERFEITO", color: "var(--accent)" };
+  if (absT < 0.11) return { text: "BOM", color: "#f4f4f4" };
+  return null;
+}
+
+function App() {
+  const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const accent = COLORS[t.accent] || COLORS.white;
+
+  // steps: number[] — 0=off, 1=single, 2/3/4=roll (N sub-hits within the step)
+  // patternSteps: how many steps this instrument loops over (independent per instrument)
+  const [pieces, setPieces] = useState(() => KIT_PIECES.map((p) => ({
+    ...p,
+    steps: Array(16).fill(0),
+    patternSteps: 16,
+  })));
+  const [playing, setPlaying] = useState(false);
+  const [countdown, setCountdown] = useState(null); // null | 3 | 2 | 1
+  const countTimers = useRef([]);
+  const [listen, setListen] = useState(false);
+  const [showCues, setShowCues] = useState(true);
+  const [panel, setPanel] = useState(true);
+  const [now, setNow] = useState(performance.now() / 1000);
+
+  // sequencer state
+  const [mode, setMode] = useState("poly"); // "poly" | "seq" | "fill"
+  const [seqBpm, setSeqBpm] = useState(120);
+  // currentStepMap: { [pieceId]: number } — independent step per instrument
+  const [currentStepMap, setCurrentStepMap] = useState({});
+
+  // virada (drum fill): grade própria de 1 "compasso" com a mesma semântica de
+  // steps (0=off, 1=toque, 2..8=roll). fillGrid: { [pieceId]: number[fillLen] }.
+  // arranca com uma virada-exemplo descendo pelo kit (caixa→toms→chão).
+  const [fillLen, setFillLen] = useState(8);
+  const [fillGrid, setFillGrid] = useState(() => ({
+    snare: [1, 1, 0, 0, 0, 0, 0, 0],
+    tom1:  [0, 0, 1, 1, 0, 0, 0, 0],
+    tom2:  [0, 0, 0, 0, 1, 1, 0, 0],
+    floor: [0, 0, 0, 0, 0, 0, 1, 1],
+  }));
+  const [fillOn, setFillOn] = useState(false);   // encaixar a virada no loop do seq
+  const [fillEvery, setFillEvery] = useState(4); // ...a cada N compassos
+
+  const t0 = useRef(0);
+  const lastPhase = useRef({});
+  const hitsRef = useRef([]);
+  const judgeRef = useRef({});
+  const piecesRef = useRef(pieces);
+  const listenRef = useRef(listen);
+  const playingRef = useRef(playing);
+  const modeRef = useRef(mode);
+  const seqBpmRef = useRef(seqBpm);
+  // last fired step per instrument (to avoid double-firing)
+  const seqStepMapRef = useRef({});
+  // virada: config corrente + último beat global tocado (evita duplo disparo)
+  const fillRef = useRef({});
+  const lastGRef = useRef(-1);
+
+  piecesRef.current = pieces;
+  listenRef.current = listen;
+  playingRef.current = playing;
+  modeRef.current = mode;
+  seqBpmRef.current = seqBpm;
+  fillRef.current = { len: fillLen, grid: fillGrid, on: fillOn, every: fillEvery };
+
+  const accentRef = useRef(accent);
+  accentRef.current = accent;
+
+  const trigger = useCallback((id, auto) => {
+    const tn = performance.now() / 1000;
+    window.DrumAudio.play(id);
+    hitsRef.current.push({ id: Math.random(), piece: id, start: tn, color: auto ? "#8a8a8a" : accentRef.current });
+    if (hitsRef.current.length > 40) hitsRef.current.splice(0, hitsRef.current.length - 40);
+    if (!auto && playingRef.current) {
+      const p = piecesRef.current.find((x) => x.id === id);
+      if (p && p.active) {
+        const period = 60 / p.bpm;
+        let d = (((tn - t0.current) % period) + period) % period;
+        if (d > period / 2) d -= period;
+        const j = judge(Math.abs(d));
+        if (j) judgeRef.current[id] = { ...j, t: tn };
+      }
+    }
+  }, []);
+
+  // fires a step: if count > 1, schedules N sub-hits evenly spaced within the step duration
+  const fireStep = useCallback((id, count) => {
+    const tn = performance.now() / 1000;
+    if (count === 1) {
+      trigger(id, true);
+      return;
+    }
+    const stepDuration = 60 / seqBpmRef.current;
+    const audioNow = window.DrumAudio.now();
+    for (let i = 0; i < count; i++) {
+      window.DrumAudio.play(id, audioNow + i * (stepDuration / count));
+    }
+    hitsRef.current.push({ id: Math.random(), piece: id, start: tn, color: "#8a8a8a" });
+    if (hitsRef.current.length > 40) hitsRef.current.splice(0, hitsRef.current.length - 40);
+  }, [trigger]);
+
+  // dispara todas as peças que tocam na posição `pos` da virada
+  const fireFillAt = useCallback((pos) => {
+    const f = fillRef.current;
+    piecesRef.current.forEach((p) => {
+      const count = f.grid[p.id]?.[pos] || 0;
+      if (count > 0 && listenRef.current) fireStep(p.id, count);
+    });
+  }, [fireStep]);
+
+  // main clock
+  useEffect(() => {
+    let raf;
+    const frame = () => {
+      const tn = performance.now() / 1000;
+      if (playingRef.current) {
+        if (modeRef.current === "fill") {
+          // praticar só a virada — loopa a grade da virada no BPM global
+          const f = fillRef.current;
+          const len = f.len || 1;
+          const G = Math.floor((tn - t0.current) / (60 / seqBpmRef.current));
+          if (G !== lastGRef.current) {
+            lastGRef.current = G;
+            fireFillAt(((G % len) + len) % len);
+          }
+        } else if (modeRef.current === "seq") {
+          const period = 60 / seqBpmRef.current;
+          const elapsed = tn - t0.current;
+          const f = fillRef.current;
+          const G = Math.floor(elapsed / period);
+          // a timeline divide-se em compassos de fillLen beats; quando a virada
+          // está ligada, cada N-ésimo compasso é a virada (substitui o padrão).
+          const inFill = f.on && f.len > 0 &&
+            (Math.floor(G / f.len) % f.every === f.every - 1);
+
+          if (inFill) {
+            if (G !== lastGRef.current) {
+              lastGRef.current = G;
+              fireFillAt(G % f.len);
+            }
+            // zera o tracking do padrão normal pra ele re-disparar limpo após a virada
+            if (Object.keys(seqStepMapRef.current).length) {
+              seqStepMapRef.current = {};
+              setCurrentStepMap({});
+            }
+          } else {
+            lastGRef.current = G;
+            let anyChanged = false;
+            const newMap = {};
+            piecesRef.current.forEach((p) => {
+              const ps = p.patternSteps || 16;
+              const step = Math.floor(elapsed / period) % ps;
+              newMap[p.id] = step;
+              if (step !== (seqStepMapRef.current[p.id] ?? -1)) {
+                anyChanged = true;
+                if (listenRef.current) {
+                  const count = p.steps?.[step] || 0;
+                  if (count > 0) fireStep(p.id, count);
+                }
+              }
+            });
+
+            seqStepMapRef.current = newMap;
+            if (anyChanged) setCurrentStepMap({ ...newMap });
+          }
+        } else {
+          // polyrhythm mode
+          piecesRef.current.forEach((p) => {
+            if (!p.active) return;
+            const period = 60 / p.bpm;
+            const phase = (((tn - t0.current) % period) + period) % period / period;
+            const last = lastPhase.current[p.id];
+            if (last != null && phase < last && listenRef.current) trigger(p.id, true);
+            lastPhase.current[p.id] = phase;
+          });
+        }
+      }
+      setNow(tn);
+      raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(raf);
+  }, [trigger, fireStep, fireFillAt]);
+
+  const doStart = useCallback(() => {
+    t0.current = performance.now() / 1000;
+    lastPhase.current = {};
+    seqStepMapRef.current = {};
+    lastGRef.current = -1;
+    setCurrentStepMap({});
+    setCountdown(null);
+    setPlaying(true);
+  }, []);
+
+  const start = () => {
+    window.DrumAudio.resume();
+    const beatMs = (60 / seqBpmRef.current) * 1000;
+    // click sounds: hihat on 3 and 2, kick+hihat on 1
+    window.DrumAudio.play("hihat");
+    setCountdown(3);
+    const t1 = setTimeout(() => { window.DrumAudio.play("hihat"); setCountdown(2); }, beatMs);
+    const t2 = setTimeout(() => { window.DrumAudio.play("kick"); window.DrumAudio.play("hihat"); setCountdown(1); }, beatMs * 2);
+    const t3 = setTimeout(doStart, beatMs * 3);
+    countTimers.current = [t1, t2, t3];
+  };
+
+  const stop = () => {
+    countTimers.current.forEach(clearTimeout);
+    countTimers.current = [];
+    setCountdown(null);
+    setPlaying(false);
+    seqStepMapRef.current = {};
+    lastGRef.current = -1;
+    setCurrentStepMap({});
+  };
+
+  // keyboard
+  useEffect(() => {
+    const map = {};
+    KIT_PIECES.forEach((p) => { map[p.key.toLowerCase()] = p.id; });
+    const down = (e) => {
+      if (e.repeat) return;
+      if (e.target.tagName === "INPUT") return;
+      const k = e.key === " " ? " " : e.key.toLowerCase();
+      if (map[k]) { e.preventDefault(); window.DrumAudio.resume(); trigger(map[k]); }
+    };
+    window.addEventListener("keydown", down);
+    return () => window.removeEventListener("keydown", down);
+  }, [trigger]);
+
+  const hits = hitsRef.current.filter((h) => now - h.start < 0.7);
+
+  // posição corrente da virada (>=0 quando uma virada está soando), p/ guias
+  let fillPos = -1;
+  if (playing && fillLen > 0) {
+    const G = Math.floor((now - t0.current) / (60 / seqBpm));
+    if (mode === "fill") {
+      fillPos = ((G % fillLen) + fillLen) % fillLen;
+    } else if (mode === "seq" && fillOn && Math.floor(G / fillLen) % fillEvery === fillEvery - 1) {
+      fillPos = G % fillLen;
+    }
+  }
+
+  const cues = {};
+  if (playing) {
+    if (fillPos >= 0) {
+      // guias da virada: acende as peças que tocam na posição atual
+      pieces.forEach((p) => {
+        if ((fillGrid[p.id]?.[fillPos] || 0) > 0) cues[p.id] = 0.95;
+      });
+    } else if (mode === "seq") {
+      pieces.forEach((p) => {
+        const step = currentStepMap[p.id] ?? -1;
+        if (step >= 0 && (p.steps?.[step] || 0) > 0) cues[p.id] = 0.95;
+      });
+    } else if (mode === "poly") {
+      pieces.forEach((p) => {
+        if (!p.active) return;
+        const period = 60 / p.bpm;
+        cues[p.id] = (((now - t0.current) % period) + period) % period / period;
+      });
+    }
+  }
+
+  const setBpm = (id, v) =>
+    setPieces((ps) => ps.map((p) => (p.id === id ? { ...p, bpm: Math.max(20, Math.min(300, v)) } : p)));
+  const toggleActive = (id) =>
+    setPieces((ps) => ps.map((p) => (p.id === id ? { ...p, active: !p.active } : p)));
+
+  // resize steps array when changing patternSteps, preserving existing activations
+  const setPatternSteps = (id, n) =>
+    setPieces((ps) => ps.map((p) => {
+      if (p.id !== id) return p;
+      const newSteps = Array(n).fill(0).map((_, i) => p.steps[i] || 0);
+      return { ...p, patternSteps: n, steps: newSteps };
+    }));
+
+  const toggleStep = (id, stepIdx) =>
+    setPieces((ps) => ps.map((p) => {
+      if (p.id !== id) return p;
+      const newSteps = [...p.steps];
+      newSteps[stepIdx] = newSteps[stepIdx] > 0 ? 0 : 1;
+      return { ...p, steps: newSteps };
+    }));
+
+  const cycleRoll = (id, stepIdx) =>
+    setPieces((ps) => ps.map((p) => {
+      if (p.id !== id) return p;
+      const newSteps = [...p.steps];
+      const cur = newSteps[stepIdx];
+      newSteps[stepIdx] = cur === 0 ? 2 : cur >= 8 ? 1 : cur + 1;
+      return { ...p, steps: newSteps };
+    }));
+
+  // ---- edição da virada (mesma semântica de toggleStep/cycleRoll) ----
+  const fillRow = (id) => {
+    const arr = (fillGrid[id] || []).slice(0, fillLen);
+    while (arr.length < fillLen) arr.push(0);
+    return arr;
+  };
+  const toggleFill = (id, i) =>
+    setFillGrid((g) => {
+      const arr = fillRow(id);
+      arr[i] = arr[i] > 0 ? 0 : 1;
+      return { ...g, [id]: arr };
+    });
+  const cycleFillRoll = (id, i) =>
+    setFillGrid((g) => {
+      const arr = fillRow(id);
+      const cur = arr[i];
+      arr[i] = cur === 0 ? 2 : cur >= 8 ? 1 : cur + 1;
+      return { ...g, [id]: arr };
+    });
+  const clearFill = () => setFillGrid({});
+  // muda o tamanho da virada preservando o que já estava marcado
+  const changeFillLen = (n) => {
+    setFillLen(n);
+    setFillGrid((g) => {
+      const ng = {};
+      for (const id in g) ng[id] = Array(n).fill(0).map((_, i) => g[id][i] || 0);
+      return ng;
+    });
+  };
+
+  // inject countdown animation once
+  useEffect(() => {
+    const s = document.createElement("style");
+    s.textContent = `@keyframes cdPop{0%{transform:scale(1.5);opacity:0}15%{opacity:1}100%{transform:scale(1);opacity:1}}.cd-num{animation:cdPop 0.18s cubic-bezier(.2,1.4,.4,1) forwards}`;
+    document.head.appendChild(s);
+  }, []);
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#000", overflow: "hidden", "--accent": accent }}>
+      <div style={{ position: "absolute", inset: 0, background: "radial-gradient(120% 80% at 50% 86%, rgba(255,255,255,0.05), transparent 60%)", pointerEvents: "none" }} />
+      <Kit pieces={pieces} style={t.renderStyle} cues={cues} hits={hits} now={now} color={accent}
+        hitEffect={t.hitEffect} showFloor={t.showFloor} showCues={showCues}
+        onHit={(id) => { window.DrumAudio.resume(); trigger(id); }} judgeMap={judgeRef.current} />
+      <div style={{ position: "absolute", inset: 0, pointerEvents: "none", background: "radial-gradient(120% 100% at 50% 40%, transparent 55%, rgba(0,0,0,0.7))" }} />
+      <div style={{ position: "absolute", top: 22, left: 28, pointerEvents: "none" }}>
+        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, letterSpacing: "0.18em", fontSize: 17, color: "#fff" }}>DRUMIO</div>
+        <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10.5, letterSpacing: "0.22em", color: "rgba(255,255,255,0.4)", marginTop: 3 }}>TREINO POV</div>
+      </div>
+      {countdown !== null && (
+        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, pointerEvents: "none" }}>
+          <div key={countdown} className="cd-num" style={{
+            fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700,
+            fontSize: 240, lineHeight: 1, color: accent,
+            textShadow: `0 0 80px ${accent}, 0 0 160px ${accent}44`,
+          }}>
+            {countdown}
+          </div>
+        </div>
+      )}
+      {!playing && countdown === null && (
+        <div style={{ position: "absolute", top: "13%", left: "50%", transform: "translateX(-50%)", textAlign: "center", pointerEvents: "none", fontFamily: "'JetBrains Mono', monospace", color: "rgba(255,255,255,0.5)", fontSize: 13, letterSpacing: "0.08em", lineHeight: 1.8 }}>
+          toque numa peça para tocá-la · teclas {KIT_PIECES.map((p) => (p.key === " " ? "ESP" : p.key)).join(" ")}<br />
+          carregue em <span style={{ color: "#fff" }}>INÍCIO</span> para correr os anéis-guia
+        </div>
+      )}
+      <Transport playing={playing || countdown !== null} onStart={start} onStop={stop}
+        listen={listen} setListen={setListen} showCues={showCues} setShowCues={setShowCues}
+        panel={panel} setPanel={setPanel} accent={accent} mode={mode} setMode={setMode} />
+      {panel && (
+        <PiecePanel pieces={pieces} accent={accent} cues={cues} now={now}
+          setBpm={setBpm} toggleActive={toggleActive} onClose={() => setPanel(false)}
+          onTap={(id) => { window.DrumAudio.resume(); trigger(id); }}
+          mode={mode} seqBpm={seqBpm} setSeqBpm={setSeqBpm}
+          currentStepMap={currentStepMap}
+          toggleStep={toggleStep} cycleRoll={cycleRoll} setPatternSteps={setPatternSteps}
+          fillGrid={fillGrid} fillLen={fillLen} changeFillLen={changeFillLen}
+          toggleFill={toggleFill} cycleFillRoll={cycleFillRoll} clearFill={clearFill}
+          fillOn={fillOn} setFillOn={setFillOn} fillEvery={fillEvery} setFillEvery={setFillEvery}
+          fillPos={fillPos} />
+      )}
+      <TweaksPanel>
+        <TweakSection label="Bateria" />
+        <TweakRadio label="Estilo" value={t.renderStyle} options={[{ value: "filled", label: "Preenchido" }, { value: "outline", label: "Contorno" }, { value: "wireframe", label: "Arame" }]} onChange={(v) => setTweak("renderStyle", v)} />
+        <TweakToggle label="Chão em perspetiva" value={t.showFloor} onChange={(v) => setTweak("showFloor", v)} />
+        <TweakSection label="Resposta" />
+        <TweakRadio label="Efeito de toque" value={t.hitEffect} options={[{ value: "ripple", label: "Ondulação" }, { value: "shockwave", label: "Choque" }, { value: "glow", label: "Brilho" }]} onChange={(v) => setTweak("hitEffect", v)} />
+        <TweakColor label="Destaque" value={t.accent === "white" ? COLORS.white : COLORS[t.accent]}
+          options={[COLORS.white, COLORS.cyan, COLORS.amber]}
+          onChange={(v) => setTweak("accent", v === COLORS.cyan ? "cyan" : v === COLORS.amber ? "amber" : "white")} />
+      </TweaksPanel>
+    </div>
+  );
+}
+
+// ---------- Transport bar ----------
+function Tbtn({ children, active, onClick, primary, accent }) {
+  const [h, setH] = useState(false);
+  return (
+    <button onClick={onClick} onMouseEnter={() => setH(true)} onMouseLeave={() => setH(false)}
+      style={{
+        fontFamily: "'JetBrains Mono', monospace", fontSize: 12, letterSpacing: "0.1em",
+        textTransform: "uppercase", padding: primary ? "0 22px" : "0 16px", height: 40,
+        borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", gap: 8,
+        border: `1px solid ${active || primary ? accent : "rgba(255,255,255,0.18)"}`,
+        background: primary ? accent : active ? "rgba(255,255,255,0.1)" : h ? "rgba(255,255,255,0.06)" : "transparent",
+        color: primary ? "#000" : active ? "#fff" : "rgba(255,255,255,0.72)",
+        fontWeight: primary ? 700 : 500, transition: "all 0.12s",
+      }}>
+      {children}
+    </button>
+  );
+}
+
+function Transport({ playing, onStart, onStop, listen, setListen, showCues, setShowCues, panel, setPanel, accent, mode, setMode }) {
+  return (
+    <div style={{ position: "absolute", bottom: 26, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 10, alignItems: "center", padding: 10, borderRadius: 14, background: "rgba(10,10,10,0.72)", border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(14px)" }}>
+      <Tbtn primary accent={accent} onClick={playing ? onStop : onStart}>
+        <span style={{ fontSize: 13 }}>{playing ? "■" : "▶"}</span>{playing ? "Parar" : "Início"}
+      </Tbtn>
+      <div style={{ width: 1, height: 26, background: "rgba(255,255,255,0.12)" }} />
+      <Tbtn active={listen} accent={accent} onClick={() => setListen((v) => !v)}>Ouvir</Tbtn>
+      <Tbtn active={showCues} accent={accent} onClick={() => setShowCues((v) => !v)}>Guias</Tbtn>
+      <Tbtn active={panel} accent={accent} onClick={() => setPanel((v) => !v)}>Bateria</Tbtn>
+      <div style={{ width: 1, height: 26, background: "rgba(255,255,255,0.12)" }} />
+      <Tbtn active={mode === "poly"} accent={accent} onClick={() => setMode("poly")}>Poly</Tbtn>
+      <Tbtn active={mode === "seq"} accent={accent} onClick={() => setMode("seq")}>Seq</Tbtn>
+      <Tbtn active={mode === "fill"} accent={accent} onClick={() => setMode("fill")}>Virada</Tbtn>
+    </div>
+  );
+}
+
+// ---------- Step cell ----------
+function StepCell({ count, isCurrent, accent, onLeft, onRight }) {
+  const isOn = count > 0;
+  const isRoll = count > 1;
+  const bg = isOn
+    ? (isCurrent ? accent : isRoll ? `${accent}99` : `${accent}55`)
+    : (isCurrent ? "rgba(255,255,255,0.08)" : "transparent");
+  const border = isOn
+    ? accent
+    : (isCurrent ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.14)");
+  const textColor = isCurrent && isOn ? "#000" : accent;
+  return (
+    <button onClick={onLeft} onContextMenu={(e) => { e.preventDefault(); onRight(); }}
+      title={isRoll ? `${count}× roll · clique-direito para aumentar (máx 8)` : "clique-direito para roll"}
+      style={{
+        width: 22, height: 22, borderRadius: 4,
+        border: `1.5px solid ${border}`, background: bg,
+        color: isRoll ? textColor : "transparent",
+        fontSize: 10, fontWeight: 800, fontFamily: "'JetBrains Mono', monospace",
+        cursor: "pointer", outline: "none",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        transition: "background 0.06s, border-color 0.06s", userSelect: "none",
+      }}>
+      {isRoll ? count : ""}
+    </button>
+  );
+}
+
+// ---------- Pattern length selector ----------
+function PatternStepsPicker({ value, onChange, accent }) {
+  const dec = () => onChange(Math.max(1, value - 4));
+  const inc = () => onChange(Math.min(64, value + 4));
+  const isPreset = [4, 8, 16, 32].includes(value);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-end" }}>
+      {/* preset shortcuts */}
+      <div style={{ display: "flex", gap: 3 }}>
+        {[4, 8, 16, 32].map((n) => (
+          <button key={n} onClick={() => onChange(n)}
+            style={{
+              width: 26, height: 16, borderRadius: 3, cursor: "pointer",
+              border: `1px solid ${value === n ? accent : "rgba(255,255,255,0.15)"}`,
+              background: value === n ? `${accent}33` : "transparent",
+              color: value === n ? accent : "rgba(255,255,255,0.4)",
+              fontFamily: "'JetBrains Mono', monospace", fontSize: 8,
+              fontWeight: value === n ? 700 : 400, outline: "none",
+            }}>{n}</button>
+        ))}
+      </div>
+      {/* fine adjust */}
+      <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
+        <button onClick={dec}
+          style={{ width: 18, height: 18, borderRadius: 3, border: "1px solid rgba(255,255,255,0.18)", background: "transparent", color: "#fff", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", outline: "none" }}>−</button>
+        <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: isPreset ? "rgba(255,255,255,0.35)" : accent, minWidth: 22, textAlign: "center" }}>{value}</div>
+        <button onClick={inc}
+          style={{ width: 18, height: 18, borderRadius: 3, border: "1px solid rgba(255,255,255,0.18)", background: "transparent", color: "#fff", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", outline: "none" }}>+</button>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Step sequencer grid ----------
+function StepGrid({ p, currentStep, accent, toggleStep, cycleRoll }) {
+  const n = p.patternSteps || 16;
+  const rows = [];
+  for (let i = 0; i < n; i += 8) rows.push(Array.from({ length: Math.min(8, n - i) }, (_, j) => i + j));
+  return (
+    <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 3 }}>
+      {rows.map((row, ri) => (
+        <div key={ri} style={{ display: "flex", gap: 3 }}>
+          {row.map((i) => (
+            <StepCell key={i}
+              count={p.steps?.[i] || 0}
+              isCurrent={currentStep === i}
+              accent={accent}
+              onLeft={() => toggleStep(p.id, i)}
+              onRight={() => cycleRoll(p.id, i)}
+            />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------- Per-piece row ----------
+function Row({ p, accent, phase, setBpm, toggleActive, onTap, mode, currentStep, toggleStep, cycleRoll, setPatternSteps }) {
+  const dotOn = phase != null && phase > 0.9;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", padding: "10px 0", borderBottom: "1px solid rgba(255,255,255,0.06)", opacity: p.active ? 1 : 0.45 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <button onClick={() => toggleActive(p.id)}
+          style={{ width: 16, height: 16, borderRadius: 4, flexShrink: 0, cursor: "pointer", border: `1.5px solid ${p.active ? accent : "rgba(255,255,255,0.3)"}`, background: p.active ? accent : "transparent", boxShadow: dotOn && p.active ? `0 0 10px 2px ${accent}` : "none", transition: "box-shadow 0.08s" }} />
+        <div onClick={() => onTap(p.id)} style={{ flex: 1, cursor: "pointer" }}>
+          <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 14, color: "#fff", fontWeight: 500 }}>{p.label}</div>
+          <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: "rgba(255,255,255,0.35)", letterSpacing: "0.1em" }}>{p.key === " " ? "ESPAÇO" : "TECLA " + p.key}</div>
+        </div>
+        {mode === "poly" ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <Step onClick={() => setBpm(p.id, p.bpm - 5)}>−</Step>
+            <div style={{ width: 58, textAlign: "center" }}>
+              <input value={p.bpm} onChange={(e) => setBpm(p.id, parseInt(e.target.value) || 20)}
+                style={{ width: 40, background: "transparent", border: "none", color: "#fff", fontFamily: "'JetBrains Mono', monospace", fontSize: 18, textAlign: "center", outline: "none" }} />
+              <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8.5, color: "rgba(255,255,255,0.3)", letterSpacing: "0.18em", marginTop: -2 }}>BPM</div>
+            </div>
+            <Step onClick={() => setBpm(p.id, p.bpm + 5)}>+</Step>
+          </div>
+        ) : (
+          <PatternStepsPicker value={p.patternSteps || 16} onChange={(n) => setPatternSteps(p.id, n)} accent={accent} />
+        )}
+      </div>
+      {mode === "seq" && (
+        <StepGrid p={p} currentStep={currentStep} accent={accent} toggleStep={toggleStep} cycleRoll={cycleRoll} />
+      )}
+    </div>
+  );
+}
+
+function Step({ children, onClick }) {
+  const [h, setH] = useState(false);
+  return (
+    <button onClick={onClick} onMouseEnter={() => setH(true)} onMouseLeave={() => setH(false)}
+      style={{ width: 24, height: 24, borderRadius: 6, border: "1px solid rgba(255,255,255,0.18)", background: h ? "rgba(255,255,255,0.1)" : "transparent", color: "#fff", cursor: "pointer", fontSize: 15, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>{children}</button>
+  );
+}
+
+// ---------- Global BPM control ----------
+function SeqControls({ seqBpm, setSeqBpm, accent }) {
+  return (
+    <div style={{ marginBottom: 14, padding: "12px 14px", borderRadius: 8, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 13, color: "#fff", fontWeight: 600, letterSpacing: "0.04em" }}>BPM GLOBAL</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <Step onClick={() => setSeqBpm((v) => Math.max(20, v - 5))}>−</Step>
+          <div style={{ width: 54, textAlign: "center" }}>
+            <input value={seqBpm} onChange={(e) => setSeqBpm(Math.max(20, Math.min(300, parseInt(e.target.value) || 20)))}
+              style={{ width: 38, background: "transparent", border: "none", color: "#fff", fontFamily: "'JetBrains Mono', monospace", fontSize: 18, textAlign: "center", outline: "none" }} />
+            <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8.5, color: "rgba(255,255,255,0.3)", letterSpacing: "0.18em", marginTop: -2 }}>BPM</div>
+          </div>
+          <Step onClick={() => setSeqBpm((v) => Math.min(300, v + 5))}>+</Step>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- small pill button (presets de tamanho / "a cada N") ----------
+function Pill({ label, active, accent, onClick }) {
+  return (
+    <button onClick={onClick}
+      style={{
+        minWidth: 26, height: 20, padding: "0 7px", borderRadius: 4, cursor: "pointer",
+        border: `1px solid ${active ? accent : "rgba(255,255,255,0.15)"}`,
+        background: active ? `${accent}33` : "transparent",
+        color: active ? accent : "rgba(255,255,255,0.45)",
+        fontFamily: "'JetBrains Mono', monospace", fontSize: 9.5,
+        fontWeight: active ? 700 : 400, outline: "none",
+      }}>{label}</button>
+  );
+}
+
+// ---------- Virada: inserção no loop do sequenciador ----------
+function FillInsertControls({ accent, fillOn, setFillOn, fillEvery, setFillEvery }) {
+  return (
+    <div style={{ marginBottom: 14, padding: "12px 14px", borderRadius: 8, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 13, color: "#fff", fontWeight: 600, letterSpacing: "0.04em" }}>VIRADA NO LOOP</div>
+        <button onClick={() => setFillOn((v) => !v)}
+          style={{
+            width: 44, height: 22, borderRadius: 11, cursor: "pointer", position: "relative",
+            border: `1px solid ${fillOn ? accent : "rgba(255,255,255,0.25)"}`,
+            background: fillOn ? `${accent}55` : "transparent", transition: "all 0.12s", outline: "none",
+          }}>
+          <span style={{ position: "absolute", top: 2, left: fillOn ? 23 : 2, width: 16, height: 16, borderRadius: "50%", background: fillOn ? accent : "rgba(255,255,255,0.5)", transition: "left 0.12s" }} />
+        </button>
+      </div>
+      {fillOn && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
+          <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10.5, color: "rgba(255,255,255,0.5)" }}>a cada</div>
+          <div style={{ display: "flex", gap: 4 }}>
+            {[2, 4, 8].map((n) => (
+              <Pill key={n} label={n} active={fillEvery === n} accent={accent} onClick={() => setFillEvery(n)} />
+            ))}
+          </div>
+          <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10.5, color: "rgba(255,255,255,0.5)" }}>compassos</div>
+        </div>
+      )}
+      <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9.5, color: "rgba(255,255,255,0.32)", lineHeight: 1.6, marginTop: 10 }}>
+        monte a virada na aba <span style={{ color: "rgba(255,255,255,0.7)" }}>Virada</span> · o último compasso do ciclo vira a virada
+      </div>
+    </div>
+  );
+}
+
+// ---------- Virada: construtor (grade própria, uma linha por peça) ----------
+function FillBuilder({ pieces, accent, fillGrid, fillLen, changeFillLen, toggleFill, cycleFillRoll, clearFill, fillPos, onTap }) {
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, padding: "12px 14px", borderRadius: 8, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}>
+        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 13, color: "#fff", fontWeight: 600, letterSpacing: "0.04em" }}>PASSOS</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          {[4, 8, 16].map((n) => (
+            <Pill key={n} label={n} active={fillLen === n} accent={accent} onClick={() => changeFillLen(n)} />
+          ))}
+          <div style={{ width: 1, height: 16, background: "rgba(255,255,255,0.15)", margin: "0 2px" }} />
+          <Pill label="limpar" active={false} accent={accent} onClick={clearFill} />
+        </div>
+      </div>
+      {pieces.map((p) => {
+        const row = fillGrid[p.id] || [];
+        return (
+          <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+            <div onClick={() => onTap(p.id)}
+              style={{ width: 66, flexShrink: 0, cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: 12.5, color: "#fff" }}>{p.label}</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 3, width: 200 }}>
+              {Array.from({ length: fillLen }).map((_, i) => (
+                <StepCell key={i} count={row[i] || 0} isCurrent={fillPos === i} accent={accent}
+                  onLeft={() => toggleFill(p.id, i)} onRight={() => cycleFillRoll(p.id, i)} />
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function PiecePanel({ pieces, accent, cues, setBpm, toggleActive, onClose, onTap, mode, seqBpm, setSeqBpm, currentStepMap, toggleStep, cycleRoll, setPatternSteps,
+  fillGrid, fillLen, changeFillLen, toggleFill, cycleFillRoll, clearFill, fillOn, setFillOn, fillEvery, setFillEvery, fillPos }) {
+  return (
+    <div style={{ position: "absolute", top: 0, right: 0, height: "100%", width: 318, background: "rgba(8,8,8,0.82)", borderLeft: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(16px)", padding: "22px 22px 26px", boxSizing: "border-box", display: "flex", flexDirection: "column", overflowY: "auto" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", color: "#fff" }}>
+          {mode === "seq" ? "SEQUENCIADOR" : mode === "fill" ? "VIRADA" : "TEMPO DA BATERIA"}
+        </div>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: 18 }}>×</button>
+      </div>
+      <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10.5, color: "rgba(255,255,255,0.4)", lineHeight: 1.6, marginBottom: 14 }}>
+        {mode === "seq"
+          ? "cada instrumento tem o seu próprio loop · clique = on/off · clique-direito = roll"
+          : mode === "fill"
+          ? "monte a sua virada · clique = on/off · clique-direito = roll · INÍCIO loopa a virada com as guias"
+          : "cada peça mantém o seu próprio tempo — uma verdadeira polirritmia. ative quais comandam os anéis-guia."}
+      </div>
+      {mode === "fill" ? (
+        <>
+          <SeqControls seqBpm={seqBpm} setSeqBpm={setSeqBpm} accent={accent} />
+          <FillBuilder pieces={pieces} accent={accent} fillGrid={fillGrid} fillLen={fillLen}
+            changeFillLen={changeFillLen} toggleFill={toggleFill} cycleFillRoll={cycleFillRoll}
+            clearFill={clearFill} fillPos={fillPos} onTap={onTap} />
+        </>
+      ) : (
+        <>
+          {mode === "seq" && (
+            <>
+              <SeqControls seqBpm={seqBpm} setSeqBpm={setSeqBpm} accent={accent} />
+              <FillInsertControls accent={accent} fillOn={fillOn} setFillOn={setFillOn}
+                fillEvery={fillEvery} setFillEvery={setFillEvery} />
+            </>
+          )}
+          {pieces.map((p) => (
+            <Row key={p.id} p={p} accent={accent} phase={cues[p.id]} setBpm={setBpm} toggleActive={toggleActive} onTap={onTap}
+              mode={mode}
+              currentStep={currentStepMap[p.id] ?? -1}
+              toggleStep={toggleStep} cycleRoll={cycleRoll} setPatternSteps={setPatternSteps} />
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);

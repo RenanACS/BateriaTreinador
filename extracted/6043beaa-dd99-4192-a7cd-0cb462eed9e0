@@ -1,0 +1,225 @@
+// First-person drum kit: SVG geometry, render styles, cues, ripples.
+// Exports window.Kit (the whole scene) + window.KIT_PIECES (base config).
+const { useMemo } = React;
+
+// Base kit laid out from the throne POV (viewBox 1600x1000).
+// Near pieces sit low & large; cymbals ride high & flat (deep perspective).
+const KIT_PIECES = [
+  { id: "crash", label: "Ataque",    type: "cymbal", cx: 360,  cy: 296, rx: 150, ry: 44,  bpm: 40,  active: false, key: "Q" },
+  { id: "ride",  label: "Condução",  type: "cymbal", cx: 1244, cy: 352, rx: 166, ry: 52,  bpm: 55,  active: false, key: "P" },
+  { id: "tom2",  label: "Tom Médio", type: "drum",   cx: 968,  cy: 470, rx: 118, ry: 48,  depth: 74,  bpm: 100, active: false, key: "I" },
+  { id: "tom1",  label: "Tom Agudo", type: "drum",   cx: 632,  cy: 470, rx: 110, ry: 46,  depth: 70,  bpm: 80,  active: false, key: "U" },
+  { id: "hihat", label: "Chimbal",   type: "hihat",  cx: 236,  cy: 632, rx: 122, ry: 36,  bpm: 120, active: true,  key: "F" },
+  { id: "kick",  label: "Bumbo",     type: "drum",   cx: 800,  cy: 700, rx: 232, ry: 90,  depth: 150, bpm: 60,  active: true,  key: " " },
+  { id: "floor", label: "Tom de Chão",type: "drum",   cx: 1300, cy: 742, rx: 150, ry: 64,  depth: 122, bpm: 70,  active: false, key: "O" },
+  { id: "snare", label: "Caixa",     type: "drum",   cx: 506,  cy: 802, rx: 130, ry: 54,  depth: 60,  bpm: 90,  active: true,  key: "J" },
+];
+window.KIT_PIECES = KIT_PIECES;
+
+const FLOOR_Y = 992;
+
+function shellPath(cx, cy, rx, ry, depth) {
+  return `M ${cx - rx} ${cy} L ${cx - rx} ${cy + depth} A ${rx} ${ry} 0 0 0 ${cx + rx} ${cy + depth} L ${cx + rx} ${cy} A ${rx} ${ry} 0 0 1 ${cx - rx} ${cy} Z`;
+}
+
+// ---- Perspective floor: faint vanishing-point grid ----
+function PerspectiveFloor() {
+  const lines = useMemo(() => {
+    const vp = { x: 800, y: 232 };
+    const out = [];
+    for (let i = -7; i <= 7; i++) {
+      const bx = 800 + i * 150;
+      out.push(`M ${vp.x} ${vp.y} L ${bx} 1000`);
+    }
+    for (let d = 0; d < 9; d++) {
+      const y = vp.y + Math.pow(d / 8, 1.8) * (1000 - vp.y);
+      out.push(`M 0 ${y} L 1600 ${y}`);
+    }
+    return out;
+  }, []);
+  return (
+    <g stroke="#ffffff" fill="none" strokeWidth="1">
+      {lines.map((d, i) => (
+        <path key={i} d={d} opacity={i < 15 ? 0.05 : 0.045} />
+      ))}
+    </g>
+  );
+}
+
+// ---- Stands ----
+function Stand({ x, y, lean }) {
+  const bx = x + (lean || 0);
+  return (
+    <g stroke="#ffffff" strokeWidth="2.5" opacity="0.32" fill="none" strokeLinecap="round">
+      <line x1={x} y1={y} x2={bx} y2={FLOOR_Y} />
+      <line x1={bx - 26} y1={FLOOR_Y} x2={bx + 4} y2={FLOOR_Y - 46} />
+      <line x1={bx + 26} y1={FLOOR_Y} x2={bx - 4} y2={FLOOR_Y - 46} />
+    </g>
+  );
+}
+
+// ---- A single piece (drum or cymbal), styled ----
+function Piece({ p, style, dim }) {
+  const w = style === "wireframe" ? 1.4 : 2.6;
+  const stroke = "#ffffff";
+  const baseOpacity = dim ? 0.32 : 1;
+
+  if (p.type === "cymbal" || p.type === "hihat") {
+    const fill = style === "filled" ? "#f4f4f4" : "none";
+    return (
+      <g opacity={baseOpacity}>
+        <Stand x={p.cx} y={p.cy + (p.type === "hihat" ? 8 : 0)} lean={p.id === "ride" ? 60 : p.id === "crash" ? -40 : 0} />
+        {p.type === "hihat" && (
+          <ellipse cx={p.cx} cy={p.cy - 16} rx={p.rx} ry={p.ry} fill={fill} stroke={stroke} strokeWidth={w} />
+        )}
+        <ellipse cx={p.cx} cy={p.cy} rx={p.rx} ry={p.ry} fill={fill} stroke={stroke} strokeWidth={w} />
+        {/* bell */}
+        <ellipse cx={p.cx} cy={p.cy} rx={p.rx * 0.22} ry={p.ry * 0.22}
+          fill={style === "filled" ? "#0a0a0a" : "none"} stroke={stroke} strokeWidth={style === "wireframe" ? 1 : 1.8} opacity="0.85" />
+        {style !== "filled" && (
+          <ellipse cx={p.cx} cy={p.cy} rx={p.rx * 0.62} ry={p.ry * 0.62} fill="none" stroke={stroke} strokeWidth={style === "wireframe" ? 0.9 : 1.4} opacity="0.5" />
+        )}
+        {style === "wireframe" &&
+          [0.4, 0.8].map((f, i) => (
+            <line key={i} x1={p.cx - p.rx * f} y1={p.cy} x2={p.cx + p.rx * f} y2={p.cy} stroke={stroke} strokeWidth="0.8" opacity="0.4" />
+          ))}
+      </g>
+    );
+  }
+
+  // drum
+  const headFill = style === "filled" ? "#f4f4f4" : "none";
+  const shellFill = style === "filled" ? "#0c0c0c" : "none";
+  return (
+    <g opacity={baseOpacity}>
+      <path d={shellPath(p.cx, p.cy, p.rx, p.ry, p.depth)} fill={shellFill} stroke={stroke} strokeWidth={w} />
+      {/* tension rods on shell */}
+      {style !== "outline" &&
+        [-0.72, -0.36, 0, 0.36, 0.72].map((f, i) => {
+          const x = p.cx + p.rx * f;
+          const yo = p.ry * Math.sqrt(Math.max(0, 1 - f * f));
+          return <line key={i} x1={x} y1={p.cy + yo} x2={x} y2={p.cy + p.depth} stroke={stroke} strokeWidth={style === "wireframe" ? 0.8 : 1.4} opacity="0.45" />;
+        })}
+      <ellipse cx={p.cx} cy={p.cy} rx={p.rx} ry={p.ry} fill={headFill} stroke={stroke} strokeWidth={w} />
+      {/* rim */}
+      <ellipse cx={p.cx} cy={p.cy} rx={p.rx * 0.9} ry={p.ry * 0.9} fill="none" stroke={stroke} strokeWidth={style === "wireframe" ? 0.8 : 1.6} opacity={style === "filled" ? 0.18 : 0.5} />
+      {style === "wireframe" && (
+        <g stroke={stroke} strokeWidth="0.8" opacity="0.4" fill="none">
+          <line x1={p.cx - p.rx} y1={p.cy} x2={p.cx + p.rx} y2={p.cy} />
+          <line x1={p.cx} y1={p.cy - p.ry} x2={p.cx} y2={p.cy + p.ry} />
+        </g>
+      )}
+    </g>
+  );
+}
+
+// ---- Approach-ring cue: contracts onto the head at the beat ----
+function Cue({ p, progress, color }) {
+  const f = 1 + (1 - progress) * 1.4;
+  const op = 0.1 + progress * 0.72;
+  const near = progress > 0.86;
+  return (
+    <ellipse
+      cx={p.cx} cy={p.cy}
+      rx={p.rx * f} ry={p.ry * f}
+      fill="none" stroke={color}
+      strokeWidth={near ? 5 : 3}
+      opacity={near ? 0.95 : op}
+    />
+  );
+}
+
+// ---- Piece flash: the struck head lights up, then fades ----
+function Flash({ p, elapsed, color }) {
+  const e = Math.min(1, elapsed);
+  const op = (1 - e) * 0.92;
+  const head = p.type === "cymbal" || p.type === "hihat";
+  return (
+    <g>
+      <ellipse cx={p.cx} cy={p.cy} rx={p.rx} ry={p.ry} fill={color} opacity={op} />
+      {!head && (
+        <path d={shellPath(p.cx, p.cy, p.rx, p.ry, p.depth)} fill={color} opacity={op * 0.4} />
+      )}
+    </g>
+  );
+}
+
+// ---- Hit feedback ----
+function Hit({ p, elapsed, effect, color }) {
+  const e = Math.min(1, elapsed);
+  if (effect === "glow") {
+    return (
+      <ellipse cx={p.cx} cy={p.cy} rx={p.rx} ry={p.ry} fill={color} opacity={(1 - e) * 0.55}
+        style={{ filter: "blur(14px)" }} />
+    );
+  }
+  if (effect === "shockwave") {
+    const f = 1 + e * 1.8;
+    return (
+      <g>
+        <ellipse cx={p.cx} cy={p.cy} rx={p.rx} ry={p.ry} fill={color} opacity={(1 - e) * 0.4} />
+        <ellipse cx={p.cx} cy={p.cy} rx={p.rx * f} ry={p.ry * f} fill="none" stroke={color}
+          strokeWidth={6 * (1 - e)} opacity={(1 - e) * 0.9} />
+      </g>
+    );
+  }
+  // ripple (default): concentric rings
+  return (
+    <g>
+      {[0, 0.22, 0.44].map((d, i) => {
+        const le = e - d;
+        if (le <= 0) return null;
+        const f = 1 + le * 1.5;
+        return (
+          <ellipse key={i} cx={p.cx} cy={p.cy} rx={p.rx * f} ry={p.ry * f} fill="none"
+            stroke={color} strokeWidth={3 * (1 - le)} opacity={(1 - le) * 0.8} />
+        );
+      })}
+    </g>
+  );
+}
+
+// ---- Whole scene ----
+function Kit({ pieces, style, cues, hits, now, color, hitEffect, showFloor, showCues, onHit, judgeMap }) {
+  // paint back-to-front by cy
+  const ordered = useMemo(() => [...pieces].sort((a, b) => a.cy - b.cy), [pieces]);
+  return (
+    <svg viewBox="0 0 1600 1000" width="100%" height="100%" preserveAspectRatio="xMidYMid meet"
+      style={{ display: "block" }}>
+      {showFloor && <PerspectiveFloor />}
+      {ordered.map((p) => (
+        <g key={p.id}>
+          <Piece p={p} style={style} dim={!p.active} />
+          {(() => {
+            const last = hits.filter((h) => h.piece === p.id).sort((a, b) => b.start - a.start)[0];
+            const fe = last ? (now - last.start) / 0.34 : 2;
+            return fe < 1 ? <Flash p={p} elapsed={fe} color={last.color || color} /> : null;
+          })()}
+          {showCues && p.active && cues[p.id] != null && <Cue p={p} progress={cues[p.id]} color={color} />}
+          {hits.filter((h) => h.piece === p.id).map((h) => (
+            <Hit key={h.id} p={p} elapsed={(now - h.start) / 0.62} effect={hitEffect} color={h.color || color} />
+          ))}
+          {/* invisible hit target — biased downward over the shell so it
+              never overlaps the piece mounted above it */}
+          <ellipse
+            cx={p.cx}
+            cy={p.cy + (p.depth || 0) * 0.35}
+            rx={p.rx * 1.04}
+            ry={p.ry + (p.depth ? p.depth * 0.42 : p.ry * 0.45)}
+            fill="transparent" style={{ cursor: "pointer" }}
+            onPointerDown={(e) => { e.preventDefault(); onHit(p.id); }} />
+          {/* judge label */}
+          {judgeMap[p.id] && now - judgeMap[p.id].t < 600 && (
+            <text x={p.cx} y={p.cy - p.ry - 14} textAnchor="middle"
+              fontFamily="'JetBrains Mono', monospace" fontSize="22" fontWeight="600"
+              fill={judgeMap[p.id].color} opacity={1 - (now - judgeMap[p.id].t) / 600}>
+              {judgeMap[p.id].text}
+            </text>
+          )}
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+window.Kit = Kit;
