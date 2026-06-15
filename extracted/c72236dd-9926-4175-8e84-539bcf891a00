@@ -42,6 +42,7 @@ function App() {
   // sequencer state
   const [mode, setMode] = useState("poly"); // "poly" | "seq" | "fill"
   const [seqBpm, setSeqBpm] = useState(120);
+  const [fillBpm, setFillBpm] = useState(120); // BPM próprio do modo Virada
   // currentStepMap: { [pieceId]: number } — independent step per instrument
   const [currentStepMap, setCurrentStepMap] = useState({});
 
@@ -67,8 +68,17 @@ function App() {
   const playingRef = useRef(playing);
   const modeRef = useRef(mode);
   const seqBpmRef = useRef(seqBpm);
+  const fillBpmRef = useRef(fillBpm);
   // last fired step per instrument (to avoid double-firing)
   const seqStepMapRef = useRef({});
+  // seq: posição contínua em "beats" (integrada quadro-a-quadro, p/ permitir
+  // que o tempo mude durante a virada sem desalinhar o padrão depois)
+  const seqBeatRef = useRef(0);
+  const lastTnRef = useRef(null);
+  const inFillRef = useRef(false); // estamos dentro da virada embutida no loop?
+  // posição corrente da virada dentro do loop do seq (p/ as guias visuais)
+  const [loopFillPos, setLoopFillPos] = useState(-1);
+  const loopFillPosRef = useRef(-1);
   // virada: config corrente + último beat global tocado (evita duplo disparo)
   const fillRef = useRef({});
   const lastGRef = useRef(-1);
@@ -78,6 +88,7 @@ function App() {
   playingRef.current = playing;
   modeRef.current = mode;
   seqBpmRef.current = seqBpm;
+  fillBpmRef.current = fillBpm;
   fillRef.current = { len: fillLen, grid: fillGrid, on: fillOn, every: fillEvery };
 
   const accentRef = useRef(accent);
@@ -107,7 +118,10 @@ function App() {
       trigger(id, true);
       return;
     }
-    const stepDuration = 60 / seqBpmRef.current;
+    // BPM da virada quando no modo Virada OU dentro da virada embutida no loop;
+    // caso contrário, o BPM do sequenciador
+    const activeBpm = (modeRef.current === "fill" || inFillRef.current) ? fillBpmRef.current : seqBpmRef.current;
+    const stepDuration = 60 / activeBpm;
     const audioNow = window.DrumAudio.now();
     for (let i = 0; i < count; i++) {
       window.DrumAudio.play(id, audioNow + i * (stepDuration / count));
@@ -135,38 +149,51 @@ function App() {
           // praticar só a virada — loopa a grade da virada no BPM global
           const f = fillRef.current;
           const len = f.len || 1;
-          const G = Math.floor((tn - t0.current) / (60 / seqBpmRef.current));
+          const G = Math.floor((tn - t0.current) / (60 / fillBpmRef.current));
           if (G !== lastGRef.current) {
             lastGRef.current = G;
             fireFillAt(((G % len) + len) % len);
           }
         } else if (modeRef.current === "seq") {
-          const period = 60 / seqBpmRef.current;
-          const elapsed = tn - t0.current;
           const f = fillRef.current;
-          const G = Math.floor(elapsed / period);
+          // integra a posição em "beats": o contador de beats é contínuo, mas a
+          // velocidade (beats/seg) muda durante a virada. Assim o compasso da
+          // virada dura f.len beats no BPM da virada e o padrão volta alinhado.
+          const dt = lastTnRef.current != null ? tn - lastTnRef.current : 0;
+          const prevG = Math.floor(seqBeatRef.current);
+          const prevInFill = f.on && f.len > 0 &&
+            (Math.floor(prevG / f.len) % f.every === f.every - 1);
+          const bpmNow = prevInFill ? fillBpmRef.current : seqBpmRef.current;
+          const beat = seqBeatRef.current + dt * (bpmNow / 60);
+          seqBeatRef.current = beat;
+
+          const G = Math.floor(beat);
           // a timeline divide-se em compassos de fillLen beats; quando a virada
           // está ligada, cada N-ésimo compasso é a virada (substitui o padrão).
           const inFill = f.on && f.len > 0 &&
             (Math.floor(G / f.len) % f.every === f.every - 1);
+          inFillRef.current = inFill;
 
           if (inFill) {
+            const pos = ((G % f.len) + f.len) % f.len;
             if (G !== lastGRef.current) {
               lastGRef.current = G;
-              fireFillAt(G % f.len);
+              fireFillAt(pos);
             }
+            if (loopFillPosRef.current !== pos) { loopFillPosRef.current = pos; setLoopFillPos(pos); }
             // zera o tracking do padrão normal pra ele re-disparar limpo após a virada
             if (Object.keys(seqStepMapRef.current).length) {
               seqStepMapRef.current = {};
               setCurrentStepMap({});
             }
           } else {
+            if (loopFillPosRef.current !== -1) { loopFillPosRef.current = -1; setLoopFillPos(-1); }
             lastGRef.current = G;
             let anyChanged = false;
             const newMap = {};
             piecesRef.current.forEach((p) => {
               const ps = p.patternSteps || 16;
-              const step = Math.floor(elapsed / period) % ps;
+              const step = ((G % ps) + ps) % ps;
               newMap[p.id] = step;
               if (step !== (seqStepMapRef.current[p.id] ?? -1)) {
                 anyChanged = true;
@@ -192,6 +219,7 @@ function App() {
           });
         }
       }
+      lastTnRef.current = tn;
       setNow(tn);
       raf = requestAnimationFrame(frame);
     };
@@ -204,6 +232,11 @@ function App() {
     lastPhase.current = {};
     seqStepMapRef.current = {};
     lastGRef.current = -1;
+    seqBeatRef.current = 0;
+    lastTnRef.current = t0.current;
+    inFillRef.current = false;
+    loopFillPosRef.current = -1;
+    setLoopFillPos(-1);
     setCurrentStepMap({});
     setCountdown(null);
     setPlaying(true);
@@ -211,7 +244,7 @@ function App() {
 
   const start = () => {
     window.DrumAudio.resume();
-    const beatMs = (60 / seqBpmRef.current) * 1000;
+    const beatMs = (60 / (mode === "fill" ? fillBpm : seqBpm)) * 1000;
     // click sounds: hihat on 3 and 2, kick+hihat on 1
     window.DrumAudio.play("hihat");
     setCountdown(3);
@@ -228,6 +261,9 @@ function App() {
     setPlaying(false);
     seqStepMapRef.current = {};
     lastGRef.current = -1;
+    inFillRef.current = false;
+    loopFillPosRef.current = -1;
+    setLoopFillPos(-1);
     setCurrentStepMap({});
   };
 
@@ -250,11 +286,11 @@ function App() {
   // posição corrente da virada (>=0 quando uma virada está soando), p/ guias
   let fillPos = -1;
   if (playing && fillLen > 0) {
-    const G = Math.floor((now - t0.current) / (60 / seqBpm));
     if (mode === "fill") {
+      const G = Math.floor((now - t0.current) / (60 / fillBpm));
       fillPos = ((G % fillLen) + fillLen) % fillLen;
-    } else if (mode === "seq" && fillOn && Math.floor(G / fillLen) % fillEvery === fillEvery - 1) {
-      fillPos = G % fillLen;
+    } else if (mode === "seq" && fillOn) {
+      fillPos = loopFillPos;
     }
   }
 
@@ -382,6 +418,7 @@ function App() {
           setBpm={setBpm} toggleActive={toggleActive} onClose={() => setPanel(false)}
           onTap={(id) => { window.DrumAudio.resume(); trigger(id); }}
           mode={mode} seqBpm={seqBpm} setSeqBpm={setSeqBpm}
+          fillBpm={fillBpm} setFillBpm={setFillBpm}
           currentStepMap={currentStepMap}
           toggleStep={toggleStep} cycleRoll={cycleRoll} setPatternSteps={setPatternSteps}
           fillGrid={fillGrid} fillLen={fillLen} changeFillLen={changeFillLen}
@@ -567,11 +604,11 @@ function Step({ children, onClick }) {
 }
 
 // ---------- Global BPM control ----------
-function SeqControls({ seqBpm, setSeqBpm, accent }) {
+function SeqControls({ seqBpm, setSeqBpm, accent, label }) {
   return (
     <div style={{ marginBottom: 14, padding: "12px 14px", borderRadius: 8, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 13, color: "#fff", fontWeight: 600, letterSpacing: "0.04em" }}>BPM GLOBAL</div>
+        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 13, color: "#fff", fontWeight: 600, letterSpacing: "0.04em" }}>{label || "BPM GLOBAL"}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <Step onClick={() => setSeqBpm((v) => Math.max(20, v - 5))}>−</Step>
           <div style={{ width: 54, textAlign: "center" }}>
@@ -628,7 +665,7 @@ function FillInsertControls({ accent, fillOn, setFillOn, fillEvery, setFillEvery
         </div>
       )}
       <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9.5, color: "rgba(255,255,255,0.32)", lineHeight: 1.6, marginTop: 10 }}>
-        monte a virada na aba <span style={{ color: "rgba(255,255,255,0.7)" }}>Virada</span> · o último compasso do ciclo vira a virada
+        monte a virada na aba <span style={{ color: "rgba(255,255,255,0.7)" }}>Virada</span> · o último compasso do ciclo vira a virada · ela toca no <span style={{ color: "rgba(255,255,255,0.7)" }}>BPM da virada</span>
       </div>
     </div>
   );
@@ -667,7 +704,7 @@ function FillBuilder({ pieces, accent, fillGrid, fillLen, changeFillLen, toggleF
   );
 }
 
-function PiecePanel({ pieces, accent, cues, setBpm, toggleActive, onClose, onTap, mode, seqBpm, setSeqBpm, currentStepMap, toggleStep, cycleRoll, setPatternSteps,
+function PiecePanel({ pieces, accent, cues, setBpm, toggleActive, onClose, onTap, mode, seqBpm, setSeqBpm, fillBpm, setFillBpm, currentStepMap, toggleStep, cycleRoll, setPatternSteps,
   fillGrid, fillLen, changeFillLen, toggleFill, cycleFillRoll, clearFill, fillOn, setFillOn, fillEvery, setFillEvery, fillPos }) {
   return (
     <div style={{ position: "absolute", top: 0, right: 0, height: "100%", width: 318, background: "rgba(8,8,8,0.82)", borderLeft: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(16px)", padding: "22px 22px 26px", boxSizing: "border-box", display: "flex", flexDirection: "column", overflowY: "auto" }}>
@@ -686,7 +723,7 @@ function PiecePanel({ pieces, accent, cues, setBpm, toggleActive, onClose, onTap
       </div>
       {mode === "fill" ? (
         <>
-          <SeqControls seqBpm={seqBpm} setSeqBpm={setSeqBpm} accent={accent} />
+          <SeqControls seqBpm={fillBpm} setSeqBpm={setFillBpm} accent={accent} label="BPM DA VIRADA" />
           <FillBuilder pieces={pieces} accent={accent} fillGrid={fillGrid} fillLen={fillLen}
             changeFillLen={changeFillLen} toggleFill={toggleFill} cycleFillRoll={cycleFillRoll}
             clearFill={clearFill} fillPos={fillPos} onTap={onTap} />

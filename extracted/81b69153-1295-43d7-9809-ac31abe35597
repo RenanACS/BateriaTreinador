@@ -105,11 +105,31 @@
       n.start(t); n.stop(t + 0.25);
     },
     hihat(t, g, open) {
-      const n = noise(), hp = ctx.createBiquadFilter(), ng = ctx.createGain();
-      hp.type = "highpass"; hp.frequency.value = 8000;
-      n.connect(hp).connect(ng).connect(g);
-      env(ng, t, 0.5, open ? 0.32 : 0.045);
-      n.start(t); n.stop(t + (open ? 0.4 : 0.08));
+      const decay = open ? 0.28 : 0.042;
+      const dur = t + decay + 0.05;
+      // Six square oscillators at inharmonic ratios (TR-808 style) — metallic "tick"
+      const oscMix = ctx.createGain();
+      oscMix.gain.value = 0.35 / 6;
+      [2050, 3690, 5520, 6300, 8010, 8440].forEach((f) => {
+        const o = ctx.createOscillator();
+        o.type = "square"; o.frequency.value = f;
+        o.connect(oscMix);
+        o.start(t); o.stop(dur);
+      });
+      const hpOsc = ctx.createBiquadFilter();
+      hpOsc.type = "highpass"; hpOsc.frequency.value = 4000;
+      oscMix.connect(hpOsc);
+      // Noise layer for the sizzle/hiss
+      const n = noise(), hpN = ctx.createBiquadFilter();
+      hpN.type = "highpass"; hpN.frequency.value = 6000;
+      n.connect(hpN);
+      // Combine: sharp 1ms attack + fast decay
+      const ng = ctx.createGain();
+      hpOsc.connect(ng); hpN.connect(ng); ng.connect(g);
+      ng.gain.setValueAtTime(0.0001, t);
+      ng.gain.exponentialRampToValueAtTime(0.65, t + 0.001);
+      ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.001 + decay);
+      n.start(t); n.stop(dur);
     },
     tom(t, g, freq) {
       const o = ctx.createOscillator();
