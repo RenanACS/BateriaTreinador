@@ -376,6 +376,19 @@ function App() {
       return { ...g, [id]: arr };
     });
   const clearFill = () => setFillGrid({});
+
+  // "limpar tudo" — reseta os instrumentos conforme o modo atual:
+  // seq → zera todos os passos · poly → volta active/bpm ao padrão do kit ·
+  // virada → limpa a grade da virada
+  const clearAll = () => {
+    if (mode === "fill") { clearFill(); return; }
+    setPieces((ps) => ps.map((p) => {
+      if (mode === "seq") return { ...p, steps: Array(p.patternSteps || 16).fill(0) };
+      const def = KIT_PIECES.find((k) => k.id === p.id) || {};
+      return { ...p, active: def.active, bpm: def.bpm };
+    }));
+  };
+
   // muda o tamanho da virada preservando o que já estava marcado
   const changeFillLen = (n) => {
     setFillLen(n);
@@ -429,7 +442,7 @@ function App() {
         <PiecePanel pieces={pieces} accent={accent} cues={cues} now={now}
           setBpm={setBpm} toggleActive={toggleActive} onClose={() => setPanel(false)}
           onTap={(id) => { window.DrumAudio.resume(); trigger(id); }}
-          setHovered={setHovered}
+          setHovered={setHovered} clearAll={clearAll}
           mode={mode} seqBpm={seqBpm} setSeqBpm={setSeqBpm}
           fillBpm={fillBpm} setFillBpm={setFillBpm}
           currentStepMap={currentStepMap}
@@ -719,7 +732,7 @@ function FillBuilder({ pieces, accent, fillGrid, fillLen, changeFillLen, toggleF
   );
 }
 
-function PiecePanel({ pieces, accent, cues, setBpm, toggleActive, onClose, onTap, setHovered, mode, seqBpm, setSeqBpm, fillBpm, setFillBpm, currentStepMap, toggleStep, cycleRoll, setPatternSteps,
+function PiecePanel({ pieces, accent, cues, setBpm, toggleActive, onClose, onTap, setHovered, clearAll, mode, seqBpm, setSeqBpm, fillBpm, setFillBpm, currentStepMap, toggleStep, cycleRoll, setPatternSteps,
   fillGrid, fillLen, changeFillLen, toggleFill, cycleFillRoll, clearFill, fillOn, setFillOn, fillEvery, setFillEvery, fillPos }) {
   return (
     <div style={{ position: "absolute", top: 0, right: 0, height: "100%", width: 318, background: "rgba(8,8,8,0.82)", borderLeft: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(16px)", padding: "22px 22px 26px", boxSizing: "border-box", display: "flex", flexDirection: "column", overflowY: "auto" }}>
@@ -727,7 +740,14 @@ function PiecePanel({ pieces, accent, cues, setBpm, toggleActive, onClose, onTap
         <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 15, letterSpacing: "0.04em", color: "#fff" }}>
           {mode === "seq" ? "SEQUENCIADOR" : mode === "fill" ? "VIRADA" : "TEMPO DA BATERIA"}
         </div>
-        <button onClick={onClose} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: 18 }}>×</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button onClick={clearAll}
+            title={mode === "seq" ? "zerar todos os passos" : mode === "fill" ? "limpar a virada" : "repor o kit ao padrão"}
+            style={{ background: "none", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 6, color: "rgba(255,255,255,0.6)", cursor: "pointer", fontFamily: "'JetBrains Mono', monospace", fontSize: 9.5, letterSpacing: "0.08em", textTransform: "uppercase", padding: "4px 8px" }}>
+            Limpar tudo
+          </button>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: 18, lineHeight: 1 }}>×</button>
+        </div>
       </div>
       <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10.5, color: "rgba(255,255,255,0.4)", lineHeight: 1.6, marginBottom: 14 }}>
         {mode === "seq"
