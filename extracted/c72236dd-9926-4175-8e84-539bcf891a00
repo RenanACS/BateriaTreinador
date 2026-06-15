@@ -14,6 +14,8 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "showFloor": true
 }/*EDITMODE-END*/;
 
+const COUNT_IN = 4; // batidas de contagem antes de começar (1 compasso)
+
 function judge(absT) {
   if (absT < 0.045) return { text: "PERFEITO", color: "var(--accent)" };
   if (absT < 0.11) return { text: "BOM", color: "#f4f4f4" };
@@ -32,7 +34,7 @@ function App() {
     patternSteps: 16,
   })));
   const [playing, setPlaying] = useState(false);
-  const [countdown, setCountdown] = useState(null); // null | 3 | 2 | 1
+  const [countdown, setCountdown] = useState(null); // null | COUNT_IN..1
   const countTimers = useRef([]);
   const [listen, setListen] = useState(false);
   const [showCues, setShowCues] = useState(true);
@@ -246,13 +248,21 @@ function App() {
   const start = () => {
     window.DrumAudio.resume();
     const beatMs = (60 / (mode === "fill" ? fillBpm : seqBpm)) * 1000;
-    // click sounds: hihat on 3 and 2, kick+hihat on 1
-    window.DrumAudio.play("hihat");
-    setCountdown(3);
-    const t1 = setTimeout(() => { window.DrumAudio.play("hihat"); setCountdown(2); }, beatMs);
-    const t2 = setTimeout(() => { window.DrumAudio.play("kick"); window.DrumAudio.play("hihat"); setCountdown(1); }, beatMs * 2);
-    const t3 = setTimeout(doStart, beatMs * 3);
-    countTimers.current = [t1, t2, t3];
+    // contagem de COUNT_IN batidas (um compasso). chimbal a cada batida,
+    // bumbo+chimbal na última (a "1") pra marcar o tempo forte.
+    const timers = [];
+    for (let i = 0; i < COUNT_IN; i++) {
+      const n = COUNT_IN - i; // COUNT_IN..1
+      const tick = () => {
+        if (n === 1) window.DrumAudio.play("kick");
+        window.DrumAudio.play("hihat");
+        setCountdown(n);
+      };
+      if (i === 0) tick();
+      else timers.push(setTimeout(tick, beatMs * i));
+    }
+    timers.push(setTimeout(doStart, beatMs * COUNT_IN));
+    countTimers.current = timers;
   };
 
   const stop = () => {
