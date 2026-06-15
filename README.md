@@ -2,7 +2,7 @@
 
 Simulador de bateria que roda 100% no browser, sem instalar nada. Abre o HTML e toca.
 
-Fiz porque toco bateria e queria entender síntese de áudio na web — cada som é gerado matematicamente pela Web Audio API, sem samples externos.
+Fiz porque toco bateria e queria entender áudio na web. Os sons são gravações reais de uma bateria acústica de estúdio, embutidas no próprio arquivo — e existe um sintetizador matemático via Web Audio API como fallback enquanto os samples carregam.
 
 ## Como usar
 
@@ -34,7 +34,8 @@ Baixe `drumio-standalone.html` e abra no navegador. Só isso.
 
 - HTML + CSS + JavaScript puro
 - React (carregado via CDN, sem build)
-- Web Audio API para síntese de áudio
+- Web Audio API para reprodução dos samples (com síntese matemática como fallback)
+- Samples acústicos do [The Open Source Drum Kit](https://github.com/crabacus/the-open-source-drumkit) (Real Music Media), convertidos para MP3 mono 32kHz e embutidos em base64
 
 ## Por que um único HTML?
 
