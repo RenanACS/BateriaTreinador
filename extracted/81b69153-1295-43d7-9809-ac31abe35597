@@ -22,7 +22,7 @@
   let decoding = false;
 
   // per-piece gain so the recorded samples sit together in the mix
-  const SAMPLE_GAIN = { kick: 1.0, snare: 0.9, hihat: 0.55, tom1: 0.85, tom2: 0.85, floor: 0.9, crash: 0.7, ride: 0.6 };
+  const SAMPLE_GAIN = { kick: 1.5, snare: 0.9, hihat: 0.55, tom1: 0.85, tom2: 0.85, floor: 0.9, crash: 0.7, ride: 0.6 };
 
   function b64ToArrayBuffer(b64) {
     const bin = atob(b64);
@@ -80,7 +80,7 @@
       o.frequency.exponentialRampToValueAtTime(46, t + 0.13);
       const ge = ctx.createGain();
       o.connect(ge).connect(g);
-      const end = env(ge, t, 1.0, 0.34);
+      const end = env(ge, t, 1.4, 0.34);
       o.start(t); o.stop(end);
       // beater click
       const n = noise(), hp = ctx.createBiquadFilter(), ng = ctx.createGain();
