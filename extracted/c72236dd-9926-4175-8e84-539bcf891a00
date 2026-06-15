@@ -37,6 +37,7 @@ function App() {
   const [listen, setListen] = useState(false);
   const [showCues, setShowCues] = useState(true);
   const [panel, setPanel] = useState(true);
+  const [hovered, setHovered] = useState(null); // peça em hover (cena ou painel)
   const [now, setNow] = useState(performance.now() / 1000);
 
   // sequencer state
@@ -387,7 +388,8 @@ function App() {
       <div style={{ position: "absolute", inset: 0, background: "radial-gradient(120% 80% at 50% 86%, rgba(255,255,255,0.05), transparent 60%)", pointerEvents: "none" }} />
       <Kit pieces={pieces} style={t.renderStyle} cues={cues} hits={hits} now={now} color={accent}
         hitEffect={t.hitEffect} showFloor={t.showFloor} showCues={showCues}
-        onHit={(id) => { window.DrumAudio.resume(); trigger(id); }} judgeMap={judgeRef.current} />
+        onHit={(id) => { window.DrumAudio.resume(); trigger(id); }} judgeMap={judgeRef.current}
+        hovered={hovered} setHovered={setHovered} />
       <div style={{ position: "absolute", inset: 0, pointerEvents: "none", background: "radial-gradient(120% 100% at 50% 40%, transparent 55%, rgba(0,0,0,0.7))" }} />
       <div style={{ position: "absolute", top: 22, left: 28, pointerEvents: "none" }}>
         <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, letterSpacing: "0.18em", fontSize: 17, color: "#fff" }}>DRUMIO</div>
@@ -417,6 +419,7 @@ function App() {
         <PiecePanel pieces={pieces} accent={accent} cues={cues} now={now}
           setBpm={setBpm} toggleActive={toggleActive} onClose={() => setPanel(false)}
           onTap={(id) => { window.DrumAudio.resume(); trigger(id); }}
+          setHovered={setHovered}
           mode={mode} seqBpm={seqBpm} setSeqBpm={setSeqBpm}
           fillBpm={fillBpm} setFillBpm={setFillBpm}
           currentStepMap={currentStepMap}
@@ -563,10 +566,11 @@ function StepGrid({ p, currentStep, accent, toggleStep, cycleRoll }) {
 }
 
 // ---------- Per-piece row ----------
-function Row({ p, accent, phase, setBpm, toggleActive, onTap, mode, currentStep, toggleStep, cycleRoll, setPatternSteps }) {
+function Row({ p, accent, phase, setBpm, toggleActive, onTap, mode, currentStep, toggleStep, cycleRoll, setPatternSteps, setHovered }) {
   const dotOn = phase != null && phase > 0.9;
   return (
-    <div style={{ display: "flex", flexDirection: "column", padding: "10px 0", borderBottom: "1px solid rgba(255,255,255,0.06)", opacity: p.active ? 1 : 0.45 }}>
+    <div onMouseEnter={() => setHovered && setHovered(p.id)} onMouseLeave={() => setHovered && setHovered(null)}
+      style={{ display: "flex", flexDirection: "column", padding: "10px 0", borderBottom: "1px solid rgba(255,255,255,0.06)", opacity: p.active ? 1 : 0.45 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <button onClick={() => toggleActive(p.id)}
           style={{ width: 16, height: 16, borderRadius: 4, flexShrink: 0, cursor: "pointer", border: `1.5px solid ${p.active ? accent : "rgba(255,255,255,0.3)"}`, background: p.active ? accent : "transparent", boxShadow: dotOn && p.active ? `0 0 10px 2px ${accent}` : "none", transition: "box-shadow 0.08s" }} />
@@ -672,7 +676,7 @@ function FillInsertControls({ accent, fillOn, setFillOn, fillEvery, setFillEvery
 }
 
 // ---------- Virada: construtor (grade própria, uma linha por peça) ----------
-function FillBuilder({ pieces, accent, fillGrid, fillLen, changeFillLen, toggleFill, cycleFillRoll, clearFill, fillPos, onTap }) {
+function FillBuilder({ pieces, accent, fillGrid, fillLen, changeFillLen, toggleFill, cycleFillRoll, clearFill, fillPos, onTap, setHovered }) {
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, padding: "12px 14px", borderRadius: 8, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}>
@@ -688,7 +692,8 @@ function FillBuilder({ pieces, accent, fillGrid, fillLen, changeFillLen, toggleF
       {pieces.map((p) => {
         const row = fillGrid[p.id] || [];
         return (
-          <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+          <div key={p.id} onMouseEnter={() => setHovered && setHovered(p.id)} onMouseLeave={() => setHovered && setHovered(null)}
+            style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
             <div onClick={() => onTap(p.id)}
               style={{ width: 66, flexShrink: 0, cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", fontSize: 12.5, color: "#fff" }}>{p.label}</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 3, width: 200 }}>
@@ -704,7 +709,7 @@ function FillBuilder({ pieces, accent, fillGrid, fillLen, changeFillLen, toggleF
   );
 }
 
-function PiecePanel({ pieces, accent, cues, setBpm, toggleActive, onClose, onTap, mode, seqBpm, setSeqBpm, fillBpm, setFillBpm, currentStepMap, toggleStep, cycleRoll, setPatternSteps,
+function PiecePanel({ pieces, accent, cues, setBpm, toggleActive, onClose, onTap, setHovered, mode, seqBpm, setSeqBpm, fillBpm, setFillBpm, currentStepMap, toggleStep, cycleRoll, setPatternSteps,
   fillGrid, fillLen, changeFillLen, toggleFill, cycleFillRoll, clearFill, fillOn, setFillOn, fillEvery, setFillEvery, fillPos }) {
   return (
     <div style={{ position: "absolute", top: 0, right: 0, height: "100%", width: 318, background: "rgba(8,8,8,0.82)", borderLeft: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(16px)", padding: "22px 22px 26px", boxSizing: "border-box", display: "flex", flexDirection: "column", overflowY: "auto" }}>
@@ -726,7 +731,7 @@ function PiecePanel({ pieces, accent, cues, setBpm, toggleActive, onClose, onTap
           <SeqControls seqBpm={fillBpm} setSeqBpm={setFillBpm} accent={accent} label="BPM DA VIRADA" />
           <FillBuilder pieces={pieces} accent={accent} fillGrid={fillGrid} fillLen={fillLen}
             changeFillLen={changeFillLen} toggleFill={toggleFill} cycleFillRoll={cycleFillRoll}
-            clearFill={clearFill} fillPos={fillPos} onTap={onTap} />
+            clearFill={clearFill} fillPos={fillPos} onTap={onTap} setHovered={setHovered} />
         </>
       ) : (
         <>
@@ -741,7 +746,7 @@ function PiecePanel({ pieces, accent, cues, setBpm, toggleActive, onClose, onTap
             <Row key={p.id} p={p} accent={accent} phase={cues[p.id]} setBpm={setBpm} toggleActive={toggleActive} onTap={onTap}
               mode={mode}
               currentStep={currentStepMap[p.id] ?? -1}
-              toggleStep={toggleStep} cycleRoll={cycleRoll} setPatternSteps={setPatternSteps} />
+              toggleStep={toggleStep} cycleRoll={cycleRoll} setPatternSteps={setPatternSteps} setHovered={setHovered} />
           ))}
         </>
       )}
